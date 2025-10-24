@@ -144,3 +144,4 @@ def resend_verification():
     except Exception as e:
         logger.error(f"Failed to resend verification email: {str(e)}")
         return jsonify({'message': 'Failed to resend verification email'}), 500
+        return jsonify({'message': 'Failed to resend verification email'}), 500

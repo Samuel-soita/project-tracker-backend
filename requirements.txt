@@ -1,0 +1,26 @@
+# Core
+Flask==2.3.3
+Flask-SQLAlchemy==3.0.3
+Flask-Migrate==4.0.4
+Flask-Cors==4.0.0
+psycopg2-binary==2.9.9        # PostgreSQL driver
+python-dotenv==1.0.1           # Environment variable management
+
+# Authentication & Security
+PyJWT==2.8.0
+Werkzeug==3.0.3
+
+
+# Cloudinary & Email
+cloudinary==1.33.0
+sendgrid==6.12.1
+
+# Testing
+pytest==7.4.2
+pytest-flask==1.2.0
+coverage==7.4.2
+
+# Optional development tools
+ipython==8.17.0
+requests==2.31.0
+flasgger==0.9.7b2
