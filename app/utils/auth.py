@@ -1,10 +1,11 @@
 import jwt
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from flask import request, jsonify, current_app
 from app.models import User
+from app import db
 
 # -----------------------------
 # Configure logger
@@ -27,7 +28,8 @@ def generate_jwt(user_id, role, expires_hours=1):
     payload = {
         "user_id": user_id,
         "role": role,
-        "exp": datetime.utcnow() + timedelta(hours=expires_hours)
+        # Use timezone-aware datetime to avoid DeprecationWarning
+        "exp": datetime.now(timezone.utc) + timedelta(hours=expires_hours)
     }
     token = jwt.encode(payload, secret_key, algorithm="HS256")
     return token
@@ -55,7 +57,8 @@ def token_required(f):
         try:
             secret_key = current_app.config.get("SECRET_KEY") or os.environ.get("SECRET_KEY")
             data = jwt.decode(token, secret_key, algorithms=["HS256"])
-            current_user = User.query.get(data["user_id"])
+            # Use SQLAlchemy 2.x Session.get() instead of legacy Query.get()
+            current_user = db.session.get(User, data["user_id"])
             if not current_user:
                 raise Exception("User not found")
         except jwt.ExpiredSignatureError:
@@ -86,4 +89,3 @@ def role_required(allowed_roles):
             return f(current_user, *args, **kwargs)
         return wrapper
     return decorator
-
