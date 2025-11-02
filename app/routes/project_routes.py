@@ -1,18 +1,18 @@
 import logging
 from flask import Blueprint, request, jsonify
 from sqlalchemy.exc import SQLAlchemyError
-from app.models import db, Project, ProjectMember, User
+from app.models import db, Project, ProjectMember, User, Class
 from app.utils.auth import token_required
 from app.utils.pagination import paginate
 from app.utils.activity_log import log_activity
 from functools import wraps
 
-project_routes = Blueprint('project_routes', __name__)
+project_routes = Blueprint('project_routes', _name_)
 
 # -----------------------------
 # Configure logger
 # -----------------------------
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(_name_)
 logger.setLevel(logging.INFO)
 
 # -----------------------------
@@ -22,7 +22,9 @@ def owner_or_admin_required(model_class, id_arg='project_id'):
     def decorator(f):
         @wraps(f)
         def wrapper(current_user, *args, **kwargs):
-            obj = model_class.query.get_or_404(kwargs[id_arg])
+            obj = db.session.get(model_class, kwargs[id_arg])
+            if not obj:
+                return jsonify({'message': f"{model_class._name_} not found"}), 404
             if current_user.role != 'Admin' and getattr(obj, 'owner_id', None) != current_user.id:
                 logger.warning(f"Unauthorized access by user {current_user.id}")
                 return jsonify({'message': 'Not authorized'}), 403
@@ -40,18 +42,19 @@ def add_project(current_user):
     if not data.get('name'):
         return jsonify({'message': 'Project name is required'}), 400
 
-    # Check if student belongs to a cohort
-    if current_user.role != 'Admin' and not current_user.cohort_id:
-        logger.warning(f"User {current_user.id} attempted to create a project without being in a cohort")
-        return jsonify({'message': 'You must belong to a cohort to create a project'}), 403
+    # Validate that class_id and cohort_id are provided
+    if not data.get('class_id'):
+        return jsonify({'message': 'Class is required'}), 400
+    if not data.get('cohort_id'):
+        return jsonify({'message': 'Cohort is required'}), 400
 
     project = Project(
         name=data['name'],
         description=data.get('description'),
         owner_id=current_user.id,
+        class_id=data['class_id'],
+        cohort_id=data['cohort_id'],
         github_link=data.get('github_link'),
-        cover_image=data.get('cover_image'),
-        tags=','.join([t.strip() for t in data.get('tags', [])]),
         status='In Progress'
     )
 
@@ -72,31 +75,53 @@ def add_project(current_user):
 @project_routes.route('/projects', methods=['GET'])
 @token_required
 def list_projects(current_user):
-    track = request.args.get('track')
-    query = Project.query
+    query = db.session.query(Project)
 
-    if current_user.role != 'Admin':
-        query = query.filter(
-            (Project.owner_id == current_user.id) |
-            (Project.status != 'In Progress')
-        )
-
-    if track:
-        query = query.filter(Project.tags.ilike(f'%{track}%'))
+    # Students can see all projects (no filtering by status)
+    # Admins can see all projects
+    # No restrictions - everyone can see all projects
 
     projects_paginated = paginate(query, request)
     items = []
     for p in projects_paginated['items']:
-        members = [{'id': m.user_id, 'email': m.user.email, 'status': m.status} for m in p.members]
+        members = [{'id': m.user_id, 'name': m.user.name, 'email': m.user.email, 'status': m.status} for m in p.members]
+
+        # Get owner information
+        owner = db.session.get(User, p.owner_id) if p.owner_id else None
+        owner_name = owner.name if owner else 'Unknown'
+
+        # Get class information
+        class_info = None
+        if p.class_id:
+            project_class = db.session.get(Class, p.class_id)
+            if project_class:
+                class_info = {
+                    'id': project_class.id,
+                    'name': project_class.name
+                }
+
+        # Get cohort information
+        cohort_info = None
+        if p.cohort_id:
+            from app.models import Cohort
+            project_cohort = db.session.get(Cohort, p.cohort_id)
+            if project_cohort:
+                cohort_info = {
+                    'id': project_cohort.id,
+                    'name': project_cohort.name
+                }
+
         items.append({
             'id': p.id,
             'name': p.name,
             'description': p.description,
             'owner_id': p.owner_id,
+            'owner_name': owner_name,
             'github_link': p.github_link,
-            'tags': p.tags.split(',') if p.tags else [],
             'status': p.status,
-            'members': members
+            'members': members,
+            'class': class_info,
+            'cohort': cohort_info
         })
 
     return jsonify({
@@ -112,22 +137,75 @@ def list_projects(current_user):
 @project_routes.route('/projects/<int:project_id>', methods=['GET'])
 @token_required
 def get_project(current_user, project_id):
-    project = Project.query.get_or_404(project_id)
+    project = db.session.get(Project, project_id)
+    if not project:
+        return jsonify({'message': 'Project not found'}), 404
 
-    if current_user.role != 'Admin' and project.owner_id != current_user.id and project.status == 'In Progress':
-        logger.warning(f"Unauthorized project view attempt by user {current_user.id}")
-        return jsonify({'message': 'Not authorized to view this project'}), 403
+    # Allow all users to view any project (no authorization check)
 
-    members = [{'id': m.user_id, 'email': m.user.email, 'status': m.status} for m in project.members]
+    # Get owner information
+    owner = db.session.get(User, project.owner_id) if project.owner_id else None
+    owner_data = None
+    if owner:
+        owner_data = {
+            'id': owner.id,
+            'name': owner.name,
+            'email': owner.email
+        }
+        # Get owner's cohort information
+        if owner.cohort:
+            owner_data['cohort'] = {
+                'id': owner.cohort.id,
+                'name': owner.cohort.name
+            }
+        # Get owner's class information
+        if owner.class_id:
+            owner_class = db.session.get(Class, owner.class_id)
+            if owner_class:
+                owner_data['class'] = {
+                    'id': owner_class.id,
+                    'name': owner_class.name
+                }
+
+    # Get project's class information
+    class_info = None
+    if project.class_id:
+        project_class = db.session.get(Class, project.class_id)
+        if project_class:
+            class_info = {
+                'id': project_class.id,
+                'name': project_class.name
+            }
+
+    # Get project's cohort information
+    cohort_info = None
+    if project.cohort_id:
+        from app.models import Cohort
+        project_cohort = db.session.get(Cohort, project.cohort_id)
+        if project_cohort:
+            cohort_info = {
+                'id': project_cohort.id,
+                'name': project_cohort.name
+            }
+
+    members = [{'id': m.user_id, 'name': m.user.name, 'email': m.user.email, 'status': m.status} for m in project.members]
     return jsonify({
-        'id': project.id,
-        'name': project.name,
-        'description': project.description,
-        'owner_id': project.owner_id,
-        'github_link': project.github_link,
-        'tags': project.tags.split(',') if project.tags else [],
-        'status': project.status,
-        'members': members
+        'project': {
+            'id': project.id,
+            'name': project.name,
+            'description': project.description,
+            'owner_id': project.owner_id,
+            'owner': owner_data,
+            'class_id': project.class_id,
+            'cohort_id': project.cohort_id,
+            'class': class_info,
+            'cohort': cohort_info,
+            'github_link': project.github_link,
+            'status': project.status,
+            'members': members,
+            'created_at': project.created_at.isoformat() if project.created_at else None,
+            'updated_at': project.updated_at.isoformat() if project.updated_at else None
+        }
     })
 
 # -----------------------------
@@ -137,13 +215,20 @@ def get_project(current_user, project_id):
 @token_required
 @owner_or_admin_required(Project)
 def edit_project(current_user, project_id):
-    project = Project.query.get_or_404(project_id)
-    data = request.get_json()
+    project = db.session.get(Project, project_id)
+    if not project:
+        return jsonify({'message': 'Project not found'}), 404
 
+    data = request.get_json()
     project.name = data.get('name', project.name)
     project.description = data.get('description', project.description)
     project.github_link = data.get('github_link', project.github_link)
-    project.tags = ','.join([t.strip() for t in data.get('tags', project.tags.split(','))])
+
+    # Update class_id and cohort_id if provided
+    if 'class_id' in data:
+        project.class_id = data.get('class_id')
+    if 'cohort_id' in data:
+        project.cohort_id = data.get('cohort_id')
 
     try:
         db.session.commit()
@@ -162,7 +247,10 @@ def edit_project(current_user, project_id):
 @token_required
 @owner_or_admin_required(Project)
 def remove_project(current_user, project_id):
-    project = Project.query.get_or_404(project_id)
+    project = db.session.get(Project, project_id)
+    if not project:
+        return jsonify({'message': 'Project not found'}), 404
+
     try:
         db.session.delete(project)
         db.session.commit()
@@ -181,7 +269,10 @@ def remove_project(current_user, project_id):
 @token_required
 @owner_or_admin_required(Project)
 def change_project_status(current_user, project_id):
-    project = Project.query.get_or_404(project_id)
+    project = db.session.get(Project, project_id)
+    if not project:
+        return jsonify({'message': 'Project not found'}), 404
+
     status = request.json.get('status')
     allowed_statuses = ['In Progress', 'Under Review', 'Completed']
 
