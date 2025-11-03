@@ -4,8 +4,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from flask import request, jsonify, current_app
-from app.models import User
-from app import db
+from app.models import User, db
 
 # -----------------------------
 # Configure logger

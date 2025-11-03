@@ -3,7 +3,7 @@ import sendgrid
 from sendgrid.helpers.mail import Mail, Email, To, Content
 import logging
 
-logger = logging.getLogger(_name_)
+logger = logging.getLogger(__name__)
 
 def send_verification_email(to_email, token, user_name=None):
     """
