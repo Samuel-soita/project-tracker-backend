@@ -2,7 +2,6 @@
 
 from flask import Blueprint, request, jsonify
 from app.models import db, User
-from app.utils.auth import generate_jwt
 from app.utils.email_utils import send_2fa_code_email
 import random
 import string
