@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 import logging
 
 auth_routes = Blueprint('auth_routes', _name_)
-=======
 import jwt
 import os
 import logging
@@ -228,7 +227,7 @@ def disable_2fa():
     logger.info(f"2FA disabled for user {user.email}")
 
     return jsonify({'message': '2FA disabled'}), 200
-=======
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
