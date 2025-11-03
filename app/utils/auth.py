@@ -8,7 +8,7 @@ import string
 from datetime import datetime, timedelta
 import logging
 
-auth_routes = Blueprint('auth_routes', _name_)
+auth_routes = Blueprint('auth_routes', __name__)
 import jwt
 import os
 import logging
