@@ -26,7 +26,8 @@ def add_cohort(current_user):
 
     cohort = Cohort(
         name=data['name'],
-        description=data.get('description')
+        start_date=data.get('start_date'),
+        end_date=data.get('end_date')
     )
 
     try:
@@ -53,9 +54,9 @@ def list_cohorts(current_user):
             items.append({
                 'id': c.id,
                 'name': c.name,
-                'description': c.description,
-                'created_at': c.created_at.isoformat(),
-                'updated_at': c.updated_at.isoformat()
+                'start_date': c.start_date.isoformat() if c.start_date else None,
+                'end_date': c.end_date.isoformat() if c.end_date else None,
+                'created_at': c.created_at.isoformat()
             })
         return jsonify({
             'items': items,
@@ -80,7 +81,8 @@ def edit_cohort(current_user, cohort_id):
         return jsonify({'message': 'Cohort name is required'}), 400
 
     cohort.name = data.get('name', cohort.name)
-    cohort.description = data.get('description', cohort.description)
+    cohort.start_date = data.get('start_date', cohort.start_date)
+    cohort.end_date = data.get('end_date', cohort.end_date)
 
     try:
         db.session.commit()

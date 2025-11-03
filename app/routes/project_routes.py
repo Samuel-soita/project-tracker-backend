@@ -230,11 +230,59 @@ def edit_project(current_user, project_id):
     if 'cohort_id' in data:
         project.cohort_id = data.get('cohort_id')
 
+    # Handle member invitations if provided
+    members_invited = []
+    members_errors = []
+    if 'members' in data and isinstance(data['members'], list):
+        from app.utils.email_utils import send_invitation_email
+
+        for member_email in data['members']:
+            if not member_email or not isinstance(member_email, str):
+                continue
+
+            # Check if user exists
+            user = User.query.filter_by(email=member_email.strip()).first()
+            if not user:
+                members_errors.append(f"User {member_email} not found")
+                continue
+
+            # Check if already a member
+            existing = ProjectMember.query.filter_by(project_id=project_id, user_id=user.id).first()
+            if existing:
+                continue  # Skip if already invited
+
+            # Create invitation
+            try:
+                invitation = ProjectMember(
+                    project_id=project_id,
+                    user_id=user.id,
+                    status='pending',
+                    role='collaborator'
+                )
+                db.session.add(invitation)
+                members_invited.append(member_email)
+
+                # Try to send email notification
+                try:
+                    send_invitation_email(user.email, project.name, current_user.name, project.id, user.id)
+                except Exception as email_error:
+                    logger.warning(f"Failed to send invitation email to {user.email}: {str(email_error)}")
+
+            except Exception as e:
+                members_errors.append(f"Failed to invite {member_email}: {str(e)}")
+
     try:
         db.session.commit()
         log_activity(current_user.id, f"Updated project: {project.name}")
         logger.info(f"Project {project.id} updated by user {current_user.id}")
-        return jsonify({'message': 'Project updated'})
+
+        response_data = {'message': 'Project updated'}
+        if members_invited:
+            response_data['members_invited'] = members_invited
+        if members_errors:
+            response_data['members_errors'] = members_errors
+
+        return jsonify(response_data)
     except SQLAlchemyError as e:
         db.session.rollback()
         logger.error(f"Failed to update project {project.id}: {str(e)}")
