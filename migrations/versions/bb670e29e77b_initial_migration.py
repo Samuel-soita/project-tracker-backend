@@ -43,6 +43,7 @@ def upgrade():
     sa.Column('cohort_id', sa.Integer(), nullable=True),
     sa.Column('class_id', sa.Integer(), nullable=True),
     sa.Column('two_factor_enabled', sa.Boolean(), nullable=True),
+    sa.Column('two_factor_secret', sa.String(length=255), nullable=True),
     sa.ForeignKeyConstraint(['class_id'], ['classes.id'], ),
     sa.ForeignKeyConstraint(['cohort_id'], ['cohorts.id'], ),
     sa.PrimaryKeyConstraint('id'),

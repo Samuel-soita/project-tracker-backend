@@ -127,6 +127,17 @@ Migrations run automatically during deployment via `build.sh`. To run migrations
 flask db upgrade
 ```
 
+### Important Note for Fresh Deployments
+
+If you're deploying to a fresh database, Render will automatically run the initial migration (`bb670e29e77b_initial_migration.py`) which creates all tables with the current schema. This migration is self-contained and includes all necessary columns.
+
+### Migration Conflicts
+
+If you encounter "column already exists" errors during deployment:
+1. The database may have been partially migrated
+2. Check the `alembic_version` table in your database to see which migrations have run
+3. You may need to manually fix the migration state or recreate the database
+
 ## Troubleshooting
 
 ### Build Fails
