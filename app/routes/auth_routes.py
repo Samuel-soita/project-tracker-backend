@@ -1,9 +1,10 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify
 from app.models import db, User
 from app.utils.auth import generate_jwt
-from app.utils.email_utils import send_verification_email
-import jwt
-from datetime import datetime, timedelta, timezone
+import pyotp
+import qrcode
+import io
+import base64
 import logging
 
 auth_routes = Blueprint('auth_routes', __name__)
@@ -13,15 +14,6 @@ auth_routes = Blueprint('auth_routes', __name__)
 # -----------------------------
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-# -----------------------------
-# Helper: Generate verification token
-# -----------------------------
-def create_verification_token(user_id, hours_valid=24):
-    secret_key = current_app.config.get('SECRET_KEY')
-    exp_time = datetime.now(timezone.utc) + timedelta(hours=hours_valid)
-    token = jwt.encode({"user_id": user_id, "exp": exp_time}, secret_key, algorithm="HS256")
-    return token
 
 # -----------------------------
 # Register new user
@@ -45,19 +37,11 @@ def register():
     db.session.add(user)
     db.session.commit()
 
-    # Send verification email
-    try:
-        token = create_verification_token(user.id)
-        send_verification_email(user.email, token, user_name=user.name)
-        logger.info(f"Verification email sent to {user.email}")
-    except Exception as e:
-        logger.error(f"Failed to send verification email: {str(e)}")
-        return jsonify({'message': 'User registered, but verification email failed'}), 500
-
-    return jsonify({'message': 'User registered successfully. Please verify your email.'}), 201
+    logger.info(f"New user registered: {email}")
+    return jsonify({'message': 'User registered successfully.'}), 201
 
 # -----------------------------
-# Login
+# Login endpoint
 # -----------------------------
 @auth_routes.route('/auth/login', methods=['POST'])
 def login():
@@ -72,9 +56,15 @@ def login():
     if not user or not user.check_password(password):
         return jsonify({'message': 'Invalid credentials'}), 401
 
-    if not user.is_verified:
-        return jsonify({'message': 'Please verify your email before logging in'}), 403
+    if user.two_factor_enabled:
+        # Ask user for 2FA code
+        return jsonify({
+            'message': '2FA required',
+            'user_id': user.id,
+            'two_factor_enabled': True
+        }), 200
 
+    # Generate JWT for users without 2FA
     try:
         token = generate_jwt(user.id, user.role)
     except Exception as e:
@@ -83,64 +73,101 @@ def login():
 
     return jsonify({
         'token': token,
-        'user': {'id': user.id, 'name': user.name, 'role': user.role}
+        'user': {
+            'id': user.id,
+            'name': user.name,
+            'role': user.role,
+            'two_factor_enabled': user.two_factor_enabled,
+            'class_id': user.class_id,
+            'cohort_id': user.cohort_id
+        }
     }), 200
 
 # -----------------------------
-# Email verification
+# Verify 2FA code
 # -----------------------------
-@auth_routes.route('/auth/verify-email', methods=['GET'])
-def verify_email():
-    token = request.args.get('token')
-    if not token:
-        return jsonify({'message': 'Verification token is missing'}), 400
-
-    secret_key = current_app.config.get('SECRET_KEY')
-    try:
-        data = jwt.decode(token, secret_key, algorithms=['HS256'])
-        # Use db.session.get() instead of Query.get() (SQLAlchemy 2.0)
-        user = db.session.get(User, data['user_id'])
-        if not user:
-            return jsonify({'message': 'User not found'}), 404
-        if user.is_verified:
-            return jsonify({'message': 'Email already verified'}), 200
-
-        user.is_verified = True
-        db.session.commit()
-        logger.info(f"User {user.email} verified their email")
-        return jsonify({'message': 'Email verified successfully!'}), 200
-
-    except jwt.ExpiredSignatureError:
-        return jsonify({'message': 'Verification token has expired'}), 400
-    except jwt.InvalidTokenError:
-        return jsonify({'message': 'Invalid verification token'}), 400
-    except Exception as e:
-        logger.error(f"Email verification error: {str(e)}")
-        return jsonify({'message': 'Email verification failed'}), 500
-
-# -----------------------------
-# Resend verification email
-# -----------------------------
-@auth_routes.route('/auth/resend-verification', methods=['POST'])
-def resend_verification():
+@auth_routes.route('/auth/verify-2fa', methods=['POST'])
+def verify_2fa():
     data = request.get_json()
-    email = data.get('email')
+    user_id = data.get('user_id')
+    code = data.get('code')
 
-    if not email:
-        return jsonify({'message': 'Email is required'}), 400
+    if not all([user_id, code]):
+        return jsonify({'message': 'User ID and 2FA code are required'}), 400
 
-    user = User.query.filter_by(email=email).first()
+    user = db.session.get(User, user_id)
+    if not user or not user.two_factor_enabled:
+        return jsonify({'message': '2FA not enabled for this user'}), 400
+
+    totp = pyotp.TOTP(user.two_factor_secret)
+    if totp.verify(code, valid_window=1):  # allow ±30s window
+        try:
+            token = generate_jwt(user.id, user.role)
+        except Exception as e:
+            logger.error(f"JWT generation failed for user {user.id}: {str(e)}")
+            return jsonify({'message': '2FA verification failed'}), 500
+        return jsonify({
+            'token': token,
+            'user': {'id': user.id, 'name': user.name, 'role': user.role}
+        }), 200
+    else:
+        return jsonify({'message': 'Invalid 2FA code'}), 401
+
+# -----------------------------
+# Enable 2FA
+# -----------------------------
+@auth_routes.route('/auth/enable-2fa', methods=['POST'])
+def enable_2fa():
+    data = request.get_json()
+    user_id = data.get('user_id')
+
+    if not user_id:
+        return jsonify({'message': 'User ID is required'}), 400
+
+    user = db.session.get(User, user_id)
     if not user:
         return jsonify({'message': 'User not found'}), 404
 
-    if user.is_verified:
-        return jsonify({'message': 'Email already verified'}), 200
+    if user.two_factor_enabled:
+        return jsonify({'message': '2FA already enabled'}), 200
 
-    try:
-        token = create_verification_token(user.id)
-        send_verification_email(user.email, token, user_name=user.name)
-        logger.info(f"Resent verification email to {user.email}")
-        return jsonify({'message': 'Verification email resent successfully'}), 200
-    except Exception as e:
-        logger.error(f"Failed to resend verification email: {str(e)}")
-        return jsonify({'message': 'Failed to resend verification email'}), 500
+    secret = pyotp.random_base32()
+    user.two_factor_secret = secret
+    user.two_factor_enabled = True
+    db.session.commit()
+
+    # Generate OTP URI and QR code
+    otp_uri = pyotp.TOTP(secret).provisioning_uri(name=user.email, issuer_name="ProjectX")
+    qr = qrcode.make(otp_uri)
+    buf = io.BytesIO()
+    qr.save(buf, format="PNG")
+    qr_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+
+    logger.info(f"2FA enabled for user {user.email}")
+    return jsonify({
+        'message': '2FA enabled',
+        'otp_uri': otp_uri,
+        'qr_code': f"data:image/png;base64,{qr_b64}"
+    }), 200
+
+# -----------------------------
+# Disable 2FA
+# -----------------------------
+@auth_routes.route('/auth/disable-2fa', methods=['POST'])
+def disable_2fa():
+    data = request.get_json()
+    user_id = data.get('user_id')
+
+    if not user_id:
+        return jsonify({'message': 'User ID is required'}), 400
+
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({'message': 'User not found'}), 404
+
+    user.two_factor_enabled = False
+    user.two_factor_secret = None
+    db.session.commit()
+    logger.info(f"2FA disabled for user {user.email}")
+
+    return jsonify({'message': '2FA disabled'}), 200
