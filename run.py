@@ -13,6 +13,7 @@ from app.routes.cohort_routes import cohort_routes
 from app.routes.member_routes import member_routes
 from app.routes.activity_routes import activity_routes
 from app.routes.task_routes import task_bp  
+from app.routes.class_routes import class_bp
 
 def create_app():
     app = Flask(__name__)
@@ -22,7 +23,13 @@ def create_app():
     Swagger(app)
 
     # Enable CORS (for frontend)
-    CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+    CORS(app,
+            origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+            methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+            allow_headers=["Content-Type", "Authorization"],
+            supports_credentials=True,
+            expose_headers=["Content-Type", "Authorization"]
+    )
 
     # Initialize DB + migrations
     db.init_app(app)
@@ -36,15 +43,22 @@ def create_app():
     app.register_blueprint(member_routes)
     app.register_blueprint(activity_routes)
     app.register_blueprint(task_bp)  
+    app.register_blueprint(class_bp)
 
     # Health check endpoint
     @app.route('/health')
     def health():
         return {"status": "ok"}
+    
+    with app.app_context():
+        print("\n🚀 Registered Flask Routes:")
+        for rule in app.url_map.iter_rules():
+            methods = ','.join(rule.methods)
+            print(f"{rule.endpoint:30s} {methods:20s} {rule}")
 
     return app
 
 
 if __name__ == '__main__':
     app = create_app()
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)

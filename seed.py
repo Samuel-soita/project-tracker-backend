@@ -1,7 +1,6 @@
 import os
-import random
-from datetime import datetime
-from app.models import db, User, Cohort, Project, ProjectMember, ActivityLog, Task
+from datetime import datetime, date
+from app.models import db, User, Cohort, Project, ProjectMember, ActivityLog, Task, Class
 from run import create_app
 from sqlalchemy import text
 
@@ -22,9 +21,25 @@ with app.app_context():
     # -----------------------------
     print("⚠️ Truncating all tables...")
     db.session.execute(
-        text('TRUNCATE TABLE users, cohorts, projects, project_members, tasks, activity_logs RESTART IDENTITY CASCADE')
+        text('TRUNCATE TABLE users, cohorts, classes, projects, project_members, tasks, activity_logs RESTART IDENTITY CASCADE')
     )
     db.session.commit()
+
+    # -----------------------------
+    # Seed Classes
+    # -----------------------------
+    print("⚡ Seeding classes...")
+    classes = [
+        Class(name="Fullstack Web"),
+        Class(name="Android Development"),
+        Class(name="Data Science"),
+        Class(name="DevOps Track"),
+        Class(name="Product Design"),
+        Class(name="Cyber Security"),
+    ]
+    db.session.add_all(classes)
+    db.session.commit()
+    print(f"✅ Classes seeded: {len(classes)} classes")
 
     # -----------------------------
     # Seed Users
@@ -33,8 +48,7 @@ with app.app_context():
     admin = User(
         name="Admin User",
         email="admin@test.com",
-        role="Admin",
-        is_verified=True
+        role="Admin"
     )
     admin.set_password(ADMIN_PASSWORD)
 
@@ -43,10 +57,13 @@ with app.app_context():
         student = User(
             name=f"Student {i}",
             email=f"student{i}@example.com",
-            role="Student",
-            is_verified=True
+            role="Student"
         )
         student.set_password(STUDENT_PASSWORD)
+
+        # Assign a class deterministically
+        student.class_id = classes[i % len(classes)].id
+
         students.append(student)
 
     db.session.add(admin)
@@ -55,17 +72,18 @@ with app.app_context():
     print("✅ Users seeded: 1 Admin + 5 Students")
 
     # -----------------------------
-    # Seed additional test users for pytest (no duplicates!)
+    # Seed additional test users for pytest
     # -----------------------------
     test_users = [
-        {"name": "Owner Test", "email": "owner@test.com", "role": "Student", "password": "pass"},
-        {"name": "User1 Test", "email": "user1@test.com", "role": "Student", "password": "studentpass"},
-        {"name": "Student Test", "email": "student@test.com", "role": "Student", "password": "studentpass"},
+        {"name": "Owner Test", "email": "owner@test.com", "role": "Student", "password": "pass", "class": classes[0]},
+        {"name": "User1 Test", "email": "user1@test.com", "role": "Student", "password": "studentpass", "class": classes[1]},
+        {"name": "Student Test", "email": "student@test.com", "role": "Student", "password": "studentpass", "class": classes[2]},
     ]
 
     for u in test_users:
-        user = User(name=u["name"], email=u["email"], role=u["role"], is_verified=True)
+        user = User(name=u["name"], email=u["email"], role=u["role"])
         user.set_password(u["password"])
+        user.class_id = u["class"].id
         db.session.add(user)
     db.session.commit()
     print("✅ Test users seeded for pytest")
@@ -75,14 +93,22 @@ with app.app_context():
     # -----------------------------
     print("⚡ Seeding cohorts...")
     cohorts = [
-        Cohort(name="Cohort Alpha", description="Fullstack track cohort"),
-        Cohort(name="Cohort Beta", description="Data Science track cohort")
+        Cohort(
+            name="Cohort Alpha",
+            start_date=date(2025, 1, 15),
+            end_date=date(2025, 6, 30)
+        ),
+        Cohort(
+            name="Cohort Beta",
+            start_date=date(2025, 7, 1),
+            end_date=date(2025, 12, 15)
+        )
     ]
     db.session.add_all(cohorts)
     db.session.commit()
     print("✅ Cohorts seeded: 2 cohorts")
 
-    # Assign students to cohorts
+    # Assign students to cohorts deterministically
     for i, student in enumerate(students):
         student.cohort_id = cohorts[i % len(cohorts)].id
     db.session.commit()
@@ -113,9 +139,10 @@ with app.app_context():
             name=template["name"],
             description=template["description"],
             owner_id=owner.id,
+            class_id=owner.class_id,  # Assign same class as the owner
+            cohort_id=owner.cohort_id,  # Assign same cohort as the owner
             github_link=f"https://github.com/{owner.email.split('@')[0]}/{template['name'].replace(' ', '').lower()}",
-            tags=",".join(random.sample(tags_by_track[template["track"]], k=2)),
-            status=random.choice(statuses)
+            status=statuses[i % len(statuses)]
         )
         projects.append(project)
 
@@ -129,12 +156,11 @@ with app.app_context():
     print("⚡ Seeding project members & activity logs...")
     for project in projects:
         possible_members = [s for s in students if s.id != project.owner_id]
-        members_to_add = random.sample(possible_members, k=random.randint(1, min(2, len(possible_members))))
+        members_to_add = possible_members[:2]
         for member in members_to_add:
             db.session.add(ProjectMember(project_id=project.id, user_id=member.id, status="accepted"))
             db.session.add(ActivityLog(user_id=member.id, action=f"Joined project {project.name}"))
 
-        # Owner logs
         db.session.add(ActivityLog(user_id=project.owner_id, action=f"Created project {project.name}"))
 
         if project.status == "Completed":
@@ -160,19 +186,18 @@ with app.app_context():
     task_statuses = ["To Do", "In Progress", "Completed"]
 
     for project in projects:
-        task_count = random.randint(3, 6)
-        for i in range(task_count):
+        for i in range(3):
             task = Task(
-                title=random.choice(task_templates),
+                title=task_templates[i],
                 description=f"Task {i+1} for {project.name}",
-                status=random.choice(task_statuses),
+                status=task_statuses[i % len(task_statuses)],
                 project_id=project.id,
-                assignee_id=random.choice(students).id,
+                assignee_id=students[i % len(students)].id,
                 created_at=datetime.utcnow()
             )
             db.session.add(task)
 
-        db.session.add(ActivityLog(user_id=project.owner_id, action=f"Created {task_count} tasks for {project.name}"))
+        db.session.add(ActivityLog(user_id=project.owner_id, action=f"Created 3 tasks for {project.name}"))
 
     db.session.commit()
     print("✅ Tasks seeded for each project")
@@ -187,4 +212,4 @@ with app.app_context():
     db.session.add_all(admin_logs)
     db.session.commit()
 
-    print("🎉 Database seeded successfully!")
+    print("🎉 Database seeded successfully! 2FA is disabled by default. Users can enable it after login.")

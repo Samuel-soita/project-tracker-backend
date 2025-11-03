@@ -1,4 +1,27 @@
 venv/
+<<<<<<< HEAD
+# Python cache and bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+env/
+
+# Environment & secret files
+.env
+*.env
+
+# IDE/editor configs
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+=======
 __pycache__/
 *.pyc
 instance/
@@ -38,3 +61,4 @@ htmlcov/
 
 # Migrations cache
 migrations/__pycache__/
+>>>>>>> dedf973abac1d347341588eaddc038a94c91c165
