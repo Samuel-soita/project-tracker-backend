@@ -1,1 +1,40 @@
 venv/
+__pycache__/
+*.pyc
+instance/
+*.sqlite3
+*.log
+.env
+.migrations/
+*.db
+*.egg-info/
+*.DS_Store
+*.coverage
+*.pkl
+*.pyo
+*.pyd
+*.swp
+*.swo
+*.bak
+*.tmp
+*.orig
+*.idea/
+*.vscode/
+*.pytest_cache/
+*.mypy_cache/
+*.tox/
+*.coverage.*
+*.hypothesis/
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environment
+venv/
+
+# Coverage
+.coverage
+htmlcov/
+
+# Migrations cache
+migrations/__pycache__/
