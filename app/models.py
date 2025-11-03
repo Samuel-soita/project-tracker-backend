@@ -58,6 +58,7 @@ class User(db.Model):
     class_id = db.Column(db.Integer, db.ForeignKey('classes.id'), nullable=True)
 
     two_factor_enabled = db.Column(db.Boolean, default=False)
+    two_factor_secret = db.Column(db.String(255), nullable=True)
 
     owned_projects = db.relationship('Project', backref='owner', lazy=True)
     project_memberships = db.relationship('ProjectMember', back_populates='user', cascade="all, delete-orphan")
