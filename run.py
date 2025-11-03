@@ -1,3 +1,4 @@
+import os
 from flask import Flask
 from flask_migrate import Migrate
 from flask_cors import CORS
@@ -22,15 +23,22 @@ def create_app():
     # Swagger setup
     Swagger(app)
 
-    # Enable CORS (for frontend) - support both localhost and 127.0.0.1 on multiple ports
+    # Enable CORS (for frontend) - support both localhost and production
+    allowed_origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174"
+    ]
+
+    # Add production frontend URL if set
+    frontend_url = os.environ.get('FRONTEND_URL')
+    if frontend_url:
+        allowed_origins.append(frontend_url)
+
     CORS(app,
          resources={r"/*": {
-             "origins": [
-                 "http://localhost:5173",
-                 "http://127.0.0.1:5173",
-                 "http://localhost:5174",
-                 "http://127.0.0.1:5174"
-             ],
+             "origins": allowed_origins,
              "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
              "allow_headers": ["Content-Type", "Authorization"],
              "supports_credentials": True,
