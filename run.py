@@ -24,11 +24,15 @@ def create_app():
 
     # Enable CORS (for frontend)
     CORS(app,
-            origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-            methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-            allow_headers=["Content-Type", "Authorization"],
-            supports_credentials=True,
-            expose_headers=["Content-Type", "Authorization"]
+         resources={r"/*": {
+             "origins": ["http://localhost:5173", "http://127.0.0.1:5173"],
+             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+             "allow_headers": ["Content-Type", "Authorization"],
+             "supports_credentials": True,
+             "expose_headers": ["Content-Type", "Authorization"],
+             "send_wildcard": False,
+             "always_send": True
+         }}
     )
 
     # Initialize DB + migrations

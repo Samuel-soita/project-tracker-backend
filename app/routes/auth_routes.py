@@ -1,10 +1,10 @@
 from flask import Blueprint, request, jsonify
 from app.models import db, User
 from app.utils.auth import generate_jwt
-import pyotp
-import qrcode
-import io
-import base64
+from app.utils.email_utils import send_2fa_code_email
+import random
+import string
+from datetime import datetime, timedelta
 import logging
 
 auth_routes = Blueprint('auth_routes', __name__)
@@ -14,6 +14,13 @@ auth_routes = Blueprint('auth_routes', __name__)
 # -----------------------------
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+# Temporary storage for 2FA codes (in production, use Redis or database)
+two_fa_codes = {}
+
+def generate_2fa_code():
+    """Generate a random 6-digit 2FA code"""
+    return ''.join(random.choices(string.digits, k=6))
 
 # -----------------------------
 # Register new user
@@ -57,9 +64,31 @@ def login():
         return jsonify({'message': 'Invalid credentials'}), 401
 
     if user.two_factor_enabled:
-        # Ask user for 2FA code
+        # Generate and send 2FA code via email
+        code = generate_2fa_code()
+        expiry = datetime.now() + timedelta(minutes=10)
+
+        # Store code with expiry
+        two_fa_codes[user.id] = {
+            'code': code,
+            'expiry': expiry
+        }
+
+        # Send code via email
+        try:
+            send_2fa_code_email(user.email, code, user.name)
+            logger.info(f"2FA code sent to {user.email}")
+        except Exception as e:
+            logger.error(f"Failed to send 2FA code to {user.email}: {str(e)}")
+            # For development: log the code to console as fallback
+            logger.warning(f"=== DEVELOPMENT MODE: 2FA CODE FOR {user.email} ===")
+            logger.warning(f"=== CODE: {code} ===")
+            logger.warning(f"=== This code will expire in 10 minutes ===")
+            # Continue with login instead of returning error
+            pass
+
         return jsonify({
-            'message': '2FA required',
+            'message': '2FA code sent to your email',
             'user_id': user.id,
             'two_factor_enabled': True
         }), 200
@@ -95,23 +124,51 @@ def verify_2fa():
     if not all([user_id, code]):
         return jsonify({'message': 'User ID and 2FA code are required'}), 400
 
+    # Convert user_id to int if it's a string
+    try:
+        user_id = int(user_id)
+    except (ValueError, TypeError):
+        return jsonify({'message': 'Invalid user ID'}), 400
+
     user = db.session.get(User, user_id)
     if not user or not user.two_factor_enabled:
         return jsonify({'message': '2FA not enabled for this user'}), 400
 
-    totp = pyotp.TOTP(user.two_factor_secret)
-    if totp.verify(code, valid_window=1):  # allow ±30s window
-        try:
-            token = generate_jwt(user.id, user.role)
-        except Exception as e:
-            logger.error(f"JWT generation failed for user {user.id}: {str(e)}")
-            return jsonify({'message': '2FA verification failed'}), 500
-        return jsonify({
-            'token': token,
-            'user': {'id': user.id, 'name': user.name, 'role': user.role}
-        }), 200
-    else:
+    # Check if code exists and is not expired
+    if user_id not in two_fa_codes:
+        logger.warning(f"No 2FA code found for user_id: {user_id}. Available keys: {list(two_fa_codes.keys())}")
+        return jsonify({'message': 'No 2FA code found. Please request a new code.'}), 400
+
+    stored_data = two_fa_codes[user_id]
+
+    if datetime.now() > stored_data['expiry']:
+        del two_fa_codes[user_id]
+        return jsonify({'message': '2FA code expired. Please login again.'}), 400
+
+    if code != stored_data['code']:
         return jsonify({'message': 'Invalid 2FA code'}), 401
+
+    # Code is valid - clear it and generate token
+    del two_fa_codes[user_id]
+
+    try:
+        token = generate_jwt(user.id, user.role)
+    except Exception as e:
+        logger.error(f"JWT generation failed for user {user.id}: {str(e)}")
+        return jsonify({'message': '2FA verification failed'}), 500
+
+    return jsonify({
+        'token': token,
+        'user': {
+            'id': user.id,
+            'name': user.name,
+            'email': user.email,
+            'role': user.role,
+            'class_id': user.class_id,
+            'cohort_id': user.cohort_id,
+            'two_factor_enabled': user.two_factor_enabled
+        }
+    }), 200
 
 # -----------------------------
 # Enable 2FA
@@ -131,23 +188,13 @@ def enable_2fa():
     if user.two_factor_enabled:
         return jsonify({'message': '2FA already enabled'}), 200
 
-    secret = pyotp.random_base32()
-    user.two_factor_secret = secret
     user.two_factor_enabled = True
+    user.two_factor_secret = 'email-based-2fa'  # Placeholder since we're not using TOTP
     db.session.commit()
-
-    # Generate OTP URI and QR code
-    otp_uri = pyotp.TOTP(secret).provisioning_uri(name=user.email, issuer_name="ProjectX")
-    qr = qrcode.make(otp_uri)
-    buf = io.BytesIO()
-    qr.save(buf, format="PNG")
-    qr_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
 
     logger.info(f"2FA enabled for user {user.email}")
     return jsonify({
-        'message': '2FA enabled',
-        'otp_uri': otp_uri,
-        'qr_code': f"data:image/png;base64,{qr_b64}"
+        'message': '2FA enabled successfully. You will receive a code via email when logging in.'
     }), 200
 
 # -----------------------------

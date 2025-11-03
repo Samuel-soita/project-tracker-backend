@@ -7,12 +7,12 @@ from app.utils.pagination import paginate
 from app.utils.activity_log import log_activity
 from functools import wraps
 
-project_routes = Blueprint('project_routes', _name_)
+project_routes = Blueprint('project_routes', __name__)
 
 # -----------------------------
 # Configure logger
 # -----------------------------
-logger = logging.getLogger(_name_)
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 # -----------------------------
@@ -24,7 +24,7 @@ def owner_or_admin_required(model_class, id_arg='project_id'):
         def wrapper(current_user, *args, **kwargs):
             obj = db.session.get(model_class, kwargs[id_arg])
             if not obj:
-                return jsonify({'message': f"{model_class._name_} not found"}), 404
+                return jsonify({'message': f"{model_class.__name__} not found"}), 404
             if current_user.role != 'Admin' and getattr(obj, 'owner_id', None) != current_user.id:
                 logger.warning(f"Unauthorized access by user {current_user.id}")
                 return jsonify({'message': 'Not authorized'}), 403

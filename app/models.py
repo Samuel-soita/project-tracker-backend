@@ -8,11 +8,12 @@ db = SQLAlchemy()
 # Association table for Project Members
 # -----------------------------
 class ProjectMember(db.Model):
-    _tablename_ = 'project_members'
+    __tablename__ = 'project_members'
     id = db.Column(db.Integer, primary_key=True)
     project_id = db.Column(db.Integer, db.ForeignKey('projects.id', ondelete='CASCADE'))
     user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'))
     status = db.Column(db.String(20), default='pending')  # pending, accepted
+    role = db.Column(db.String(50), default='collaborator')  # collaborator, viewer, etc.
     created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     user = db.relationship('User', back_populates='project_memberships', foreign_keys=[user_id])
@@ -22,7 +23,7 @@ class ProjectMember(db.Model):
 # Activity Logs
 # -----------------------------
 class ActivityLog(db.Model):
-    _tablename_ = 'activity_logs'
+    __tablename__ = 'activity_logs'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     action = db.Column(db.String(255), nullable=False)
@@ -32,7 +33,7 @@ class ActivityLog(db.Model):
 # Classes / Specializations
 # -----------------------------
 class Class(db.Model):
-    _tablename_ = 'classes'
+    __tablename__ = 'classes'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(150), unique=True, nullable=False)  # e.g., Fullstack Android
     created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -43,7 +44,7 @@ class Class(db.Model):
 # Users
 # -----------------------------
 class User(db.Model):
-    _tablename_ = 'users'
+    __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(150), nullable=False)
     email = db.Column(db.String(150), unique=True, nullable=False)
@@ -62,7 +63,7 @@ class User(db.Model):
     project_memberships = db.relationship('ProjectMember', back_populates='user', cascade="all, delete-orphan")
     activities = db.relationship('ActivityLog', backref='user', lazy=True)
     tasks = db.relationship('Task', back_populates='assignee', lazy=True, cascade="all, delete-orphan")
-    class_model = db.relationship('Class', back_populates='students')
+    class_model = db.relationship('Class', back_populates='students') 
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -74,7 +75,7 @@ class User(db.Model):
 # Projects
 # -----------------------------
 class Project(db.Model):
-    _tablename_ = 'projects'
+    __tablename__ = 'projects'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(150), nullable=False)
     description = db.Column(db.Text, nullable=True)
@@ -95,7 +96,7 @@ class Project(db.Model):
 # Tasks
 # -----------------------------
 class Task(db.Model):
-    _tablename_ = 'tasks'
+    __tablename__ = 'tasks'
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(150), nullable=False)
     description = db.Column(db.Text, nullable=True)
@@ -111,7 +112,7 @@ class Task(db.Model):
 # Cohorts
 # -----------------------------
 class Cohort(db.Model):
-    _tablename_ = 'cohorts'
+    __tablename__ = 'cohorts'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(150), nullable=False)
     start_date = db.Column(db.Date, nullable=True)
