@@ -62,8 +62,8 @@ Add the following environment variables in your web service settings:
 
 1. Click "Create Web Service"
 2. Render will automatically:
-   - Install dependencies from `requirements.txt`
-   - Run database migrations via `build.sh`
+   - Install dependencies from `requirements.txt` (build phase)
+   - Run database migrations via `preDeployCommand` (pre-deploy phase, when DB is available)
    - Start your application with gunicorn
 
 ## Post-Deployment
@@ -118,7 +118,7 @@ Make sure to add your frontend URL to the `FRONTEND_URL` environment variable in
 
 ## Database Migrations
 
-Migrations run automatically during deployment via `build.sh`. To run migrations manually:
+Migrations run automatically during deployment via the `preDeployCommand` in `render.yaml`. This ensures the database connection is available when migrations run. To run migrations manually:
 
 1. Go to your web service in Render
 2. Click "Shell" tab
