@@ -23,34 +23,35 @@ def create_app():
     # Swagger setup
     Swagger(app)
 
-    # Enable CORS (for frontend) - support both localhost and production
+    # Robust CORS setup
     allowed_origins = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:5174",
-        "http://127.0.0.1:5174"
+        "http://127.0.0.1:5174",
     ]
 
-    # Add production frontend URL if set
+    # Add frontend URL(s) from env
     frontend_url = os.environ.get('FRONTEND_URL')
     if frontend_url:
         allowed_origins.append(frontend_url)
 
-    CORS(app,
-         resources={r"/*": {
-             "origins": allowed_origins,
-             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-             "allow_headers": ["Content-Type", "Authorization"],
-             "supports_credentials": True,
-             "expose_headers": ["Content-Type", "Authorization"],
-             "send_wildcard": False,
-             "always_send": True
-         }}
+    # Optional: allow all Vercel preview URLs
+    allowed_origins.append(r"https://*.vercel.app")
+
+    # Apply CORS globally
+    CORS(
+        app,
+        origins=allowed_origins,
+        supports_credentials=True,
+        methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+        allow_headers=["Content-Type", "Authorization"],
+        expose_headers=["Content-Type", "Authorization"]
     )
 
     # Initialize DB + migrations
     db.init_app(app)
-    migrate = Migrate(app, db)
+    Migrate(app, db)
 
     # Register blueprints
     app.register_blueprint(auth_routes)
@@ -66,7 +67,7 @@ def create_app():
     @app.route('/health')
     def health():
         return {"status": "ok"}
-    
+
     with app.app_context():
         print("\n🚀 Registered Flask Routes:")
         for rule in app.url_map.iter_rules():
@@ -74,7 +75,6 @@ def create_app():
             print(f"{rule.endpoint:30s} {methods:20s} {rule}")
 
     return app
-
 
 if __name__ == '__main__':
     app = create_app()
