@@ -1,5 +1,5 @@
 import os
-from flask import Flask
+from flask import Flask, request
 from flask_migrate import Migrate
 from flask_cors import CORS
 from flasgger import Swagger
@@ -24,33 +24,36 @@ def create_app():
     # Swagger setup
     Swagger(app)
 
-    # ✅ Define allowed origins (localhost + production)
-    allowed_origins = [
+    # ✅ Define base allowed origins (local + main production)
+    allowed_origins = {
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "https://project-tracker-frontend-samuels-projects-2d3d52d2.vercel.app",  # your deployed frontend
-    ]
+        "https://project-tracker-frontend-samuels-projects-2d3d52d2.vercel.app",
+    }
 
-    # ✅ Optionally add FRONTEND_URL from Render env (if set)
+    # ✅ Add FRONTEND_URL from environment if available
     frontend_url = os.environ.get("FRONTEND_URL")
-    if frontend_url and frontend_url not in allowed_origins:
-        allowed_origins.append(frontend_url)
+    if frontend_url:
+        allowed_origins.add(frontend_url)
 
-    # ✅ Allow all Vercel preview URLs automatically
-    # This covers any new builds like https://project-tracker-frontend-xxxxx.vercel.app
-    allowed_origins.append(r"https://*.vercel.app")
-
-    # ✅ Apply CORS globally
+    # ✅ Apply wide-open CORS (Render-friendly)
     CORS(
         app,
-        resources={r"/*": {"origins": allowed_origins}},
         supports_credentials=True,
+        origins=list(allowed_origins) + ["*"],  # allow all temporarily
         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
         allow_headers=["Content-Type", "Authorization"],
         expose_headers=["Content-Type", "Authorization"],
     )
+
+    # ✅ Optionally handle wildcard manually (for Vercel previews)
+    @app.after_request
+    def after_request(response):
+        origin = request.headers.get("Origin")
+        if origin and "vercel.app" in origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response
 
     # Initialize DB + migrations
     db.init_app(app)
