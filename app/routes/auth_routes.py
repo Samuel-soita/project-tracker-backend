@@ -27,7 +27,8 @@ def generate_2fa_code():
 # -----------------------------
 @auth_routes.route('/auth/register', methods=['POST'])
 def register():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
+
     name = data.get('name')
     email = data.get('email')
     password = data.get('password')
@@ -52,7 +53,9 @@ def register():
 # -----------------------------
 @auth_routes.route('/auth/login', methods=['POST'])
 def login():
-    data = request.get_json()
+    # FIX: ensure data is always a dict
+    data = request.get_json(silent=True) or {}
+
     email = data.get('email')
     password = data.get('password')
 
@@ -63,28 +66,20 @@ def login():
     if not user or not user.check_password(password):
         return jsonify({'message': 'Invalid credentials'}), 401
 
+    # 2FA flow
     if user.two_factor_enabled:
-        # Generate and send 2FA code via email
         code = generate_2fa_code()
         expiry = datetime.now() + timedelta(minutes=10)
 
-        # Store code with expiry
-        two_fa_codes[user.id] = {
-            'code': code,
-            'expiry': expiry
-        }
+        two_fa_codes[user.id] = { 'code': code, 'expiry': expiry }
 
-        # Send code via email
         try:
             send_2fa_code_email(user.email, code, user.name)
             logger.info(f"2FA code sent to {user.email}")
         except Exception as e:
             logger.error(f"Failed to send 2FA code to {user.email}: {str(e)}")
-            # For development: log the code to console as fallback
-            logger.warning(f"=== DEVELOPMENT MODE: 2FA CODE FOR {user.email} ===")
-            logger.warning(f"=== CODE: {code} ===")
-            logger.warning(f"=== This code will expire in 10 minutes ===")
-            # Continue with login instead of returning error
+            logger.warning(f"=== DEV MODE: 2FA CODE FOR {user.email}: {code} ===")
+            # Continue login instead of returning error
             pass
 
         return jsonify({
@@ -93,7 +88,7 @@ def login():
             'two_factor_enabled': True
         }), 200
 
-    # Generate JWT for users without 2FA
+    # Normal login → generate JWT
     try:
         token = generate_jwt(user.id, user.role)
     except Exception as e:
@@ -117,14 +112,14 @@ def login():
 # -----------------------------
 @auth_routes.route('/auth/verify-2fa', methods=['POST'])
 def verify_2fa():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
+
     user_id = data.get('user_id')
     code = data.get('code')
 
     if not all([user_id, code]):
         return jsonify({'message': 'User ID and 2FA code are required'}), 400
 
-    # Convert user_id to int if it's a string
     try:
         user_id = int(user_id)
     except (ValueError, TypeError):
@@ -134,7 +129,6 @@ def verify_2fa():
     if not user or not user.two_factor_enabled:
         return jsonify({'message': '2FA not enabled for this user'}), 400
 
-    # Check if code exists and is not expired
     if user_id not in two_fa_codes:
         logger.warning(f"No 2FA code found for user_id: {user_id}. Available keys: {list(two_fa_codes.keys())}")
         return jsonify({'message': 'No 2FA code found. Please request a new code.'}), 400
@@ -148,7 +142,6 @@ def verify_2fa():
     if code != stored_data['code']:
         return jsonify({'message': 'Invalid 2FA code'}), 401
 
-    # Code is valid - clear it and generate token
     del two_fa_codes[user_id]
 
     try:
@@ -175,7 +168,7 @@ def verify_2fa():
 # -----------------------------
 @auth_routes.route('/auth/enable-2fa', methods=['POST'])
 def enable_2fa():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     user_id = data.get('user_id')
 
     if not user_id:
@@ -189,20 +182,18 @@ def enable_2fa():
         return jsonify({'message': '2FA already enabled'}), 200
 
     user.two_factor_enabled = True
-    user.two_factor_secret = 'email-based-2fa'  # Placeholder since we're not using TOTP
+    user.two_factor_secret = 'email-based-2fa'
     db.session.commit()
 
     logger.info(f"2FA enabled for user {user.email}")
-    return jsonify({
-        'message': '2FA enabled successfully. You will receive a code via email when logging in.'
-    }), 200
+    return jsonify({'message': '2FA enabled successfully. You will receive a code via email when logging in.'}), 200
 
 # -----------------------------
 # Disable 2FA
 # -----------------------------
 @auth_routes.route('/auth/disable-2fa', methods=['POST'])
 def disable_2fa():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     user_id = data.get('user_id')
 
     if not user_id:
