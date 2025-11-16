@@ -23,8 +23,7 @@ def test_register_new_user(client):
         db.select(User).filter_by(email=email)
     ).scalar_one_or_none()
     assert user is not None
-    assert not user.is_verified
 
-    # Login should fail with 403 (unverified)
+    # Login should succeed since there's no verification step now
     res = client.post('/auth/login', json={'email': email, 'password': password})
-    assert res.status_code == 403
+    assert res.status_code == 200
